@@ -9,6 +9,8 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
+	"time"
 )
 
 func main() {
@@ -38,6 +40,9 @@ func execute() (err error) {
 			log.Println(err)
 			continue
 		}
+
+		conn.SetReadDeadline(time.Now().Add(time.Second * 30))
+		conn.SetWriteDeadline(time.Now().Add(time.Minute * 5))
 		go handle(conn)
 	}
 }
@@ -61,50 +66,126 @@ func handle(conn net.Conn) {
 	}
 	log.Printf("received: %s\n", line)
 
+	parts := strings.Split(line, " ")
+	if len(parts) != 3 {
+		log.Printf("invalid request line: %s", line)
+		return
+	}
+
+	path := parts[1]
+
+	switch path {
+	case "/":
+		err = writeIndex(conn)
+	case "/application/json":
+		err = writeOperations(conn, "json")
+	case "/application/xml":
+		err = writeOperations(conn, "xml")
+	default:
+		err = write404(conn)
+	}
+	if err != nil {
+		log.Println(err)
+		return
+	}
+}
+
+func writeIndex(writer io.Writer) error {
 	username := "Василий"
 	balance := "1 000.50"
 
 	page, err := ioutil.ReadFile("web/template/index.html")
 	if err != nil {
 		log.Println(err)
-		return
+		return err
 	}
 
 	page = bytes.ReplaceAll(page, []byte("{username}"), []byte(username))
 	page = bytes.ReplaceAll(page, []byte("{balance}"), []byte(balance))
 
-	const CRLF = "\r\n"
-	writer := bufio.NewWriter(conn)
-	_, err = writer.WriteString("HTTP/1.1 200" + CRLF)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	_, err = writer.WriteString("Content-Type: text/html; charset=utf-8" + CRLF)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	_, err = writer.WriteString(fmt.Sprintf("Content-Length: %d", len(page)) + CRLF)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	_, err = writer.WriteString("Connection: close" + CRLF + CRLF)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	_, err = writer.Write(page)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	err = writer.Flush()
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
+	return writeResponse(writer, 200, []string{
+		"Content-Type: text/html;charset=utf-8",
+		fmt.Sprintf("Content-Length: %d", len(page)),
+		"Connection: close",
+	}, page)
 }
+
+
+func writeOperations(writer io.Writer, typeOfApplication string) error { // generate JSON //////////////////////////////////////////////
+
+	strings.ToLower(typeOfApplication)
+	var page []byte
+	switch typeOfApplication {
+	case "json":
+		page = []byte("\"id\":\"1\",\"from\":\"0001\",\"to\":\"0002\",\"amount\":10000,\"created\":1598613478\n")
+	case "xml":
+		page = []byte("<?xml version=1.0 encoding=UTF-8?><id>20</id><from>0001</from><to>0002</to><amount>10000</amount>")
+	}
+
+	return writeResponse(writer, 200, []string{
+		"Content-Type: text/" + typeOfApplication,
+		fmt.Sprintf("Content-Length: %d", len(page)),
+		"Connection: close",
+	}, page)
+}
+
+
+func write404(writer io.Writer) error {
+	page, err := ioutil.ReadFile("web/template/index.html")
+	if err != nil {
+		_, err = ioutil.ReadFile("web/template/index.html")
+	}
+
+	return writeResponse(writer, 200, []string{
+		"Content-Type: text/html;charset=utf-8",
+		fmt.Sprintf("Content-Length: #{len(page)}"),
+		"Connection: close",
+	}, page)
+}
+
+
+func writeResponse(
+	writer io.Writer,
+	status int,
+	headers []string,
+	content []byte,
+) error {
+	const CRLF = "\r\n"
+	var err error
+
+	w := bufio.NewWriter(writer)
+	_, err = w.WriteString(fmt.Sprintf("HTTP/1.1 %d OK%s", status, CRLF))
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+
+	for _, h := range headers {
+		_, err = w.WriteString(h + CRLF)
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+	}
+
+	_, err = w.WriteString(CRLF)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	_, err = w.Write(content)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+
+	err = w.Flush()
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	return nil
+}
+
+
+

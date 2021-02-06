@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -17,6 +18,13 @@ func main() {
 	if err := execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+type transaction struct {
+	Id string
+	From string
+	To string
+	Amount int64
 }
 
 func execute() (err error) {
@@ -119,7 +127,12 @@ func writeOperations(writer io.Writer, typeOfApplication string) error { // gene
 	case "json":
 		page = []byte("\"id\":\"1\",\"from\":\"0001\",\"to\":\"0002\",\"amount\":10000,\"created\":1598613478\n")
 	case "xml":
-		page = []byte("<?xml version=1.0 encoding=UTF-8?><id>20</id><from>0001</from><to>0002</to><amount>10000</amount>")
+		page, _ = xml.Marshal(transaction{
+			Id:     "20",
+			From:   "0001",
+			To:     "0002",
+			Amount: 10_203,
+		})
 	}
 
 	return writeResponse(writer, 200, []string{

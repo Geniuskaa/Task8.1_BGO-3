@@ -3,8 +3,10 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"github.com/Geniuskaa/Task8.1_BGO-3/pkg/card"
 	"io"
 	"io/ioutil"
 	"log"
@@ -15,7 +17,13 @@ import (
 )
 
 func main() {
-	if err := execute(); err != nil {
+	bank := card.NewService("Tinok")
+	bank.AddCard(1,"VISA", "RUB",11_113_00,"0001")
+	bank.StoreOfCards[0].AddTransaction(13_141_00, "5050",time.Now())
+	bank.StoreOfCards[0].AddTransaction(1_041_00, "5060",time.Now())
+
+
+	if err := execute(bank.StoreOfCards[0]); err != nil {
 		os.Exit(1)
 	}
 }
@@ -27,7 +35,7 @@ type transaction struct {
 	Amount int64
 }
 
-func execute() (err error) {
+func execute(cardD *card.Card) (err error) {
 	listener, err := net.Listen("tcp", "0.0.0.0:9999")
 	if err != nil {
 		log.Println(err)
@@ -51,11 +59,11 @@ func execute() (err error) {
 
 		conn.SetReadDeadline(time.Now().Add(time.Second * 30))
 		conn.SetWriteDeadline(time.Now().Add(time.Minute * 5))
-		go handle(conn)
+		go handle(conn, cardD)
 	}
 }
 
-func handle(conn net.Conn) {
+func handle(conn net.Conn, cardD *card.Card) {
 	defer func() {
 		if cerr := conn.Close(); cerr != nil {
 			log.Println(cerr)
@@ -86,9 +94,9 @@ func handle(conn net.Conn) {
 	case "/":
 		err = writeIndex(conn)
 	case "/application/json":
-		err = writeOperations(conn, "json")
+		err = writeOperations(conn, "json", cardD)
 	case "/application/xml":
-		err = writeOperations(conn, "xml")
+		err = writeOperations(conn, "xml", cardD)
 	default:
 		err = write404(conn)
 	}
@@ -119,20 +127,15 @@ func writeIndex(writer io.Writer) error {
 }
 
 
-func writeOperations(writer io.Writer, typeOfApplication string) error { // generate JSON //////////////////////////////////////////////
+func writeOperations(writer io.Writer, typeOfApplication string, card *card.Card) error { // generate JSON //////////////////////////////////////////////
 
 	strings.ToLower(typeOfApplication)
 	var page []byte
 	switch typeOfApplication {
 	case "json":
-		page = []byte("\"id\":\"1\",\"from\":\"0001\",\"to\":\"0002\",\"amount\":10000,\"created\":1598613478\n")
+		page, _ = json.Marshal(card)
 	case "xml":
-		page, _ = xml.Marshal(transaction{
-			Id:     "20",
-			From:   "0001",
-			To:     "0002",
-			Amount: 10_203,
-		})
+		page, _ = xml.Marshal(card)
 	}
 
 	return writeResponse(writer, 200, []string{
